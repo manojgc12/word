@@ -1,0 +1,85 @@
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
+
+public class TagAnalyzer extends Configured implements Tool {
+
+    // Mapper Class
+    public static class TagMapper extends Mapper<Object, Text, Text, Text> {
+
+        private Text bookId = new Text();
+        private Text tag = new Text();
+
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            // Assuming input CSV or JSON format: book_id, tag1, tag2, tag3, ...
+            String line = value.toString();
+            String[] parts = line.split(","); // Modify this if your input format is different
+            if (parts.length > 1) {
+                bookId.set(parts[0]); // book_id is the first column
+                for (int i = 1; i < parts.length; i++) {
+                    tag.set(parts[i].trim());
+                    context.write(bookId, tag); // Emit the book_id and each tag as key-value pairs
+                }
+            }
+        }
+    }
+
+    // Reducer Class
+    public static class TagReducer extends Reducer<Text, Text, Text, Text> {
+
+        private Text result = new Text();
+
+        public void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+            Set<String> tagsSet = new HashSet<>();
+            for (Text val : values) {
+                tagsSet.add(val.toString()); // Add tag to the set to avoid duplicates
+            }
+            result.set(String.join(",", tagsSet)); // Join tags into a single comma-separated string
+            context.write(key, result); // Output book_id with associated tags
+        }
+    }
+
+    @Override
+    public int run(String[] args) throws Exception {
+        if (args.length != 2) {
+            System.err.println("Usage: TagAnalyzer <input path> <output path>");
+            return -1;
+        }
+
+        // Create and configure the job
+        Job job = Job.getInstance(getConf(), "Tag Analyzer");
+        job.setJarByClass(TagAnalyzer.class);
+
+        // Set the Mapper and Reducer classes
+        job.setMapperClass(TagMapper.class);
+        job.setReducerClass(TagReducer.class);
+
+        // Set the output types
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+        // Set the input and output paths
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+        // Submit the job and wait for it to complete
+        return job.waitForCompletion(true) ? 0 : 1;
+    }
+
+    public static void main(String[] args) throws Exception {
+        int exitCode = ToolRunner.run(new TagAnalyzer(), args);
+        System.exit(exitCode);
+    }
+}
